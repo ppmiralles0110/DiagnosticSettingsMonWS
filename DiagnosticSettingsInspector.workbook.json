@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# Diagnostic Settings Inspector\n\nRead-only v1: find resources in a selected scope, then inspect **one exact resource ID**. Uses Azure Resource Graph (ARG) for inventory and live Azure Resource Manager (ARM) metadata for diagnostic settings and supported categories. No logs, keys, configuration changes, or backend.\n\n## 1. Selected-scope inventory\nChoose subscriptions and resource groups. This is the inventory visible to your account, **not a confirmed production estate**. The filters below apply only to inventory, not to the independent inspector in section 2."
+        "json": "# Diagnostic Settings Coverage\n\nRead-only. Pick **subscriptions**, then **resource groups**, and this workbook lists the resources in that scope **with and without diagnostic settings**.\n\nInventory comes from Azure Resource Graph (ARG). Diagnostic settings come from **live Azure Resource Manager (ARM) reads, one read per selected resource**. Azure Resource Graph has no diagnostic settings table, so there is no way to answer this without reading each resource. No logs, no keys, no configuration changes, no backend, no deployment.\n\n## Step 0 - choose the scope\n\nKeep the scope small. Every resource left in **Resources to check** costs one live ARM request each time this page runs."
       },
       "name": "Introduction"
     },
@@ -17,7 +17,7 @@
             "id": "81eb693f-651c-42e6-8e09-a23e0b311901",
             "version": "KqlParameterItem/1.0",
             "name": "Subscriptions",
-            "label": "Inventory subscriptions",
+            "label": "Subscriptions",
             "type": 6,
             "isRequired": true,
             "multiSelect": true,
@@ -27,19 +27,43 @@
               "additionalResourceOptions": [],
               "showDefault": false
             },
-            "description": "Select explicit subscriptions. Keep the scope small; the ARG source supports at most 1,000 subscriptions per query."
+            "description": "Select explicit subscriptions. The ARG source supports at most 1,000 subscriptions per query."
           },
           {
             "id": "81eb693f-651c-42e6-8e09-a23e0b311902",
             "version": "KqlParameterItem/1.0",
             "name": "ResourceGroups",
-            "label": "Inventory resource groups",
+            "label": "Resource groups",
             "type": 2,
             "isRequired": true,
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "ResourceContainers\n| where type =~ 'microsoft.resources/subscriptions/resourcegroups'\n| project value = tolower(id), label = strcat(name, ' | ', subscriptionId), selected = false\n| order by label asc",
+            "query": "ResourceContainers\n| where type =~ 'microsoft.resources/subscriptions/resourcegroups'\n| project value = tolower(id), label = strcat(name, '  |  ', subscriptionId), selected = false\n| order by label asc\n| take 1000",
+            "crossComponentResources": [
+              "{Subscriptions}"
+            ],
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "selectAllValue": "*"
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "description": "Values are full resource group IDs, so identical names in different subscriptions stay distinct. There is deliberately no default: choosing All across many subscriptions can queue thousands of ARM reads. Recheck this after changing subscriptions."
+          },
+          {
+            "id": "81eb693f-651c-42e6-8e09-a23e0b311903",
+            "version": "KqlParameterItem/1.0",
+            "name": "ResourceTypes",
+            "label": "Resource types",
+            "type": 2,
+            "isRequired": true,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| summarize Count = count() by type\n| project value = tolower(type), label = strcat(type, '  (', Count, ')')\n| order by label asc\n| take 1000",
             "crossComponentResources": [
               "{Subscriptions}"
             ],
@@ -54,56 +78,125 @@
             },
             "queryType": 1,
             "resourceType": "microsoft.resourcegraph/resources",
-            "description": "Values are full resource group IDs; identical names in different subscriptions stay distinct. All means all resource groups in the selected subscriptions. Recheck this selection after changing subscriptions."
+            "description": "Narrow to the types you care about. Many Azure resource types do not support diagnostic settings at all; reading those wastes requests and can surface errors."
+          },
+          {
+            "id": "81eb693f-651c-42e6-8e09-a23e0b311904",
+            "version": "KqlParameterItem/1.0",
+            "name": "Resources",
+            "label": "Resources to check (one ARM read each)",
+            "type": 5,
+            "isRequired": true,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})\n| project value = id, label = strcat(name, '  |  ', type)\n| order by label asc\n| take 1000",
+            "crossComponentResources": [
+              "{Subscriptions}"
+            ],
+            "defaultValue": "value::all",
+            "value": [
+              "value::all"
+            ],
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "showDefault": false
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "description": "Defaults to every resource matching the filters above. Deselect resources to reduce live ARM requests. The dropdown itself returns at most 1,000 items."
           }
         ],
         "style": "above",
         "queryType": 1,
         "resourceType": "microsoft.resourcegraph/resources"
       },
-      "name": "InventoryScope"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| summarize Resources = count()",
-        "size": 4,
-        "title": "Selected-scope resource count (ARG; not diagnostic coverage)",
-        "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
-        "crossComponentResources": [
-          "{Subscriptions}"
-        ],
-        "visualization": "table",
-        "gridSettings": {
-          "rowLimit": 1
-        }
-      },
-      "name": "InventoryCount"
+      "name": "ScopeParameters"
     },
     {
       "type": 1,
       "content": {
-        "json": "ARG is RBAC-filtered and eventually consistent. The count is a server-side aggregation for the selected scope; the list below intentionally shows **at most 1,000 resources**, not a complete export. If the count exceeds 1,000, narrow the scope. Dropdowns also have a 1,000-item limit; use fewer subscriptions if resource groups are missing. Grid search only searches returned rows and does not change the count. Count and list refresh independently."
+        "json": "## Step 1 - coverage for the selected scope\n\nOne row per resource, plus one row per diagnostic setting found on it. Use the column filter on **Diagnostic settings** to split the list.\n\n`No setting returned` means this workbook received **no diagnostic setting rows** for that resource. That happens when the resource genuinely has none, **and also** when the read failed, was denied, was throttled, or the type does not support diagnostic settings. Check **Step 3** before treating a resource as unconfigured, and read the raw ARM panel in Step 2 for errors."
       },
-      "name": "InventoryLimits"
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "CoverageIntro"
     },
     {
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| project Name = name, Type = type, ResourceGroup = resourceGroup, SubscriptionId = subscriptionId, Location = location, ResourceId = id\n| order by ResourceId asc\n| take 1000",
+        "query": "{\"version\":\"Merge/1.0\",\"merges\":[{\"id\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\",\"mergeType\":\"leftouter\",\"leftTable\":\"ScopeInventory\",\"rightTable\":\"DiagnosticSettingsFanout\",\"leftColumn\":\"ResourceId\",\"rightColumn\":\"ResourceId\"}],\"projectRename\":[{\"originalName\":\"[ScopeInventory].Name\",\"mergedName\":\"Resource\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[ScopeInventory].Type\",\"mergedName\":\"Type\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[ScopeInventory].ResourceGroup\",\"mergedName\":\"Resource group\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].SettingName\",\"mergedName\":\"Setting name\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[Added column]\",\"mergedName\":\"Diagnostic settings\",\"fromId\":null,\"isNewItem\":true,\"newItemData\":[{\"criteriaContext\":{\"leftOperand\":\"Setting name\",\"operator\":\"isNotNull\",\"rightValType\":\"column\",\"resultValType\":\"static\",\"resultVal\":\"Setting returned\"}},{\"criteriaContext\":{\"operator\":\"Default\",\"rightValType\":\"column\",\"resultValType\":\"static\",\"resultVal\":\"No setting returned\"}}]},{\"originalName\":\"[DiagnosticSettingsFanout].LogEntries\",\"mergedName\":\"Log entries\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].MetricEntries\",\"mergedName\":\"Metric entries\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].WorkspaceId\",\"mergedName\":\"Log Analytics workspace\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].StorageAccountId\",\"mergedName\":\"Storage account\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].EventHubName\",\"mergedName\":\"Event hub\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].EventHubAuthorizationRuleId\",\"mergedName\":\"Event hub rule\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].MarketplacePartnerId\",\"mergedName\":\"Marketplace partner\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[DiagnosticSettingsFanout].LogAnalyticsDestinationType\",\"mergedName\":\"Log Analytics destination type\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[ScopeInventory].ResourceId\",\"mergedName\":\"ResourceId\",\"fromId\":\"7a1c9c2e-1f2b-4c3d-8e5a-9b0c1d2e3f40\"},{\"originalName\":\"[ScopeInventory].SubscriptionId\"},{\"originalName\":\"[ScopeInventory].Location\"},{\"originalName\":\"[DiagnosticSettingsFanout].ResourceId\"},{\"originalName\":\"[DiagnosticSettingsFanout].SettingId\"}]}",
         "size": 0,
-        "title": "Selected-scope inventory - copy a ResourceId for section 2 (up to 1,000)",
-        "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
-        "crossComponentResources": [
-          "{Subscriptions}"
-        ],
+        "title": "Resources with and without diagnostic settings (select a row to inspect it in Step 3)",
+        "queryType": 7,
         "visualization": "table",
         "gridSettings": {
-          "rowLimit": 1000,
+          "rowLimit": 10000,
+          "filter": true,
+          "formatters": [
+            {
+              "columnMatch": "Log entries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            },
+            {
+              "columnMatch": "Metric entries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            },
+            {
+              "columnMatch": "ResourceId",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "60ch"
+              }
+            }
+          ]
+        },
+        "exportedParameters": [
+          {
+            "fieldName": "ResourceId",
+            "parameterName": "SelectedResource",
+            "parameterType": 5,
+            "defaultValue": "NotSelected"
+          }
+        ],
+        "noDataMessage": "No resources returned for the selected scope."
+      },
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "Coverage"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "{\"version\":\"Merge/1.0\",\"merges\":[{\"id\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\",\"mergeType\":\"leftanti\",\"leftTable\":\"ScopeInventory\",\"rightTable\":\"DiagnosticSettingsFanout\",\"leftColumn\":\"ResourceId\",\"rightColumn\":\"ResourceId\"}],\"projectRename\":[{\"originalName\":\"[ScopeInventory].Name\",\"mergedName\":\"Resource\",\"fromId\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\"},{\"originalName\":\"[ScopeInventory].Type\",\"mergedName\":\"Type\",\"fromId\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\"},{\"originalName\":\"[ScopeInventory].ResourceGroup\",\"mergedName\":\"Resource group\",\"fromId\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\"},{\"originalName\":\"[ScopeInventory].SubscriptionId\",\"mergedName\":\"Subscription\",\"fromId\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\"},{\"originalName\":\"[ScopeInventory].Location\",\"mergedName\":\"Location\",\"fromId\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\"},{\"originalName\":\"[ScopeInventory].ResourceId\",\"mergedName\":\"ResourceId\",\"fromId\":\"8b2d0d3f-2a3c-4d5e-9f6b-0c1d2e3f4a51\"}]}",
+        "size": 0,
+        "title": "Resources with NO diagnostic setting returned (not proof of 'not configured' - see the note above)",
+        "queryType": 7,
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 10000,
           "filter": true,
           "formatters": [
             {
@@ -112,21 +205,111 @@
               "formatOptions": {
                 "linkTarget": "CellDetails",
                 "linkIsContextBlade": true,
-                "customColumnWidthSetting": "70ch"
+                "customColumnWidthSetting": "60ch"
               }
             }
           ]
         },
-        "noDataMessage": "No resources returned for the selected inventory scope."
+        "noDataMessage": "Every resource in scope returned at least one diagnostic setting."
       },
-      "name": "Inventory"
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "NoSettingsReturned"
     },
     {
       "type": 1,
       "content": {
-        "json": "## 2. Independent single-resource inspector\n\nCopy one full **ResourceId** from the inventory (click its cell for details) or from the resource's **Properties / JSON View** in Azure, then paste it below. Use the ID, not a portal URL; no trailing slash, query string, fragment, or URL encoding.\n\n**Inventory subscriptions and resource groups do not constrain or change this target.** It may be outside that scope. Changing inventory filters deliberately leaves this target unchanged; clear or replace it explicitly. Check the exact target displayed below before interpreting results.\n\nFor service children not listed by ARG, paste the exact child ID. For example, for an existing storage account's Blob service, append `/blobServices/default` to its account ID. v1 does not discover children or combine parent and child settings. A parent storage account and its Blob service are different targets."
+        "json": "## Step 2 - raw source data\n\nThe two panels below are the inputs to Step 1. Keep them visible: **this is where request errors appear**. If the ARM panel shows an error, the coverage lists above are incomplete and must not be read as 'not configured'."
       },
-      "name": "InspectorInstructions"
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "RawIntro"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})\n| where id in~ ({Resources})\n| project Name = name, Type = type, ResourceGroup = resourceGroup, SubscriptionId = subscriptionId, Location = location, ResourceId = id\n| order by Type asc, Name asc\n| take 1000",
+        "size": 0,
+        "title": "Source A - resource inventory from Azure Resource Graph (up to 1,000 rows)",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscriptions}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 1000,
+          "filter": true
+        },
+        "noDataMessage": "No resources returned for the selected scope."
+      },
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "ScopeInventory"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GET\",\"path\":\"{Resources}/providers/Microsoft.Insights/diagnosticSettings\",\"urlParams\":[{\"key\":\"api-version\",\"value\":\"2021-05-01-preview\"}],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"$.value\",\"columns\":[{\"path\":\"id\",\"columnid\":\"ResourceId\",\"substringRegexMatch\":\"(\\\\/subscriptions.*)(\\\\/providers\\\\/[Mm]icrosoft\\\\.[Ii]nsights\\\\/[Dd]iagnostic[Ss]ettings.*)\",\"substringReplace\":\"$1\"},{\"path\":\"name\",\"columnid\":\"SettingName\"},{\"path\":\"properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"id\",\"columnid\":\"SettingId\"}]}}]}",
+        "size": 0,
+        "title": "Source B - live diagnostic settings from ARM (one read per selected resource)",
+        "queryType": 12,
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 10000,
+          "filter": true,
+          "formatters": [
+            {
+              "columnMatch": "LogEntries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            },
+            {
+              "columnMatch": "MetricEntries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            }
+          ]
+        },
+        "noDataMessage": "No diagnostic settings returned for any selected resource."
+      },
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "DiagnosticSettingsFanout"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Step 3 - authoritative detail for one resource\n\nSelect a row in the Step 1 grid. Only this section performs a dedicated, paged read for a single target, so **use it to confirm anything the bulk lists suggest**.\n\nTo inspect a service child that Azure Resource Graph does not list as its own resource, add its suffix below. Example: for a storage account's Blob service, enter `/blobServices/default`. A parent storage account and its Blob service are different targets with different settings."
+      },
+      "conditionalVisibility": {
+        "parameterName": "SelectedResource",
+        "comparison": "isNotEqualTo",
+        "value": "NotSelected"
+      },
+      "name": "DetailIntro"
     },
     {
       "type": 9,
@@ -134,38 +317,43 @@
         "version": "KqlParameterItem/1.0",
         "parameters": [
           {
-            "id": "81eb693f-651c-42e6-8e09-a23e0b311903",
+            "id": "81eb693f-651c-42e6-8e09-a23e0b311905",
             "version": "KqlParameterItem/1.0",
-            "name": "TargetResourceId",
-            "label": "Exact resource ID to inspect (independent of inventory)",
+            "name": "ChildPath",
+            "label": "Optional child suffix",
             "type": 1,
-            "isRequired": true,
+            "isRequired": false,
             "value": "",
             "typeSettings": {
               "paramValidationRules": [
                 {
                   "match": true,
-                  "regExp": "^/[Ss]ubscriptions/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[Rr]esource[Gg]roups/[^/\\\\?#%{}\"'<>`\\s]+/[Pp]roviders/[A-Za-z0-9.-]+(?:/[^/\\\\?#%{}\"'<>`\\s]+/[^/\\\\?#%{}\"'<>`\\s]+)+(?![\\s\\S])",
-                  "message": "Paste one full resource-group-scoped ARM resource ID, including provider/type/name pairs. Do not use a URL, whitespace, encoded characters, query string, fragment, or trailing slash."
+                  "regExp": "^(?:|(?:/[^/\\\\?#%{}\"'<>`\\s]+/[^/\\\\?#%{}\"'<>`\\s]+)+)(?![\\s\\S])",
+                  "message": "Leave empty, or enter type/name pairs only, such as /blobServices/default. No URL, whitespace, encoded characters, query string, fragment, or trailing slash."
                 }
               ]
             },
-            "description": "Required before ARM queries run. Supports direct service-child IDs. Subscription, resource-group, tenant, and management-group targets are outside v1."
+            "description": "Appended to the selected resource ID for the two panels below only. Leave empty to inspect the resource itself."
           }
         ],
         "style": "formVertical"
       },
-      "name": "InspectorTarget"
+      "conditionalVisibility": {
+        "parameterName": "SelectedResource",
+        "comparison": "isNotEqualTo",
+        "value": "NotSelected"
+      },
+      "name": "DetailTarget"
     },
     {
       "type": 1,
       "content": {
-        "json": "**Exact ARM target (independent of inventory):**\n\n`{TargetResourceId}`\n\nThe following are two separate live reads, not an atomic snapshot. Use the workbook **Refresh** control to reread metadata. A 403, 404, 429, or other request failure is an error, **not** an empty result, unsupported resource, or compliance decision."
+        "json": "**Exact ARM target being read:**\n\n`{SelectedResource}{ChildPath}`\n\nThis target does not change when the Step 0 filters change. If you narrow the scope after selecting a row, the selection can stay behind - re-select a row, and always check the target above. The two panels below are separate live reads, not one atomic snapshot. A 403, 404, 429, or any other request failure is an **error**, not an empty result, an unsupported resource, or a compliance verdict."
       },
       "conditionalVisibility": {
-        "parameterName": "TargetResourceId",
+        "parameterName": "SelectedResource",
         "comparison": "isNotEqualTo",
-        "value": ""
+        "value": "NotSelected"
       },
       "name": "ExactTarget"
     },
@@ -173,9 +361,9 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GETARRAY\",\"path\":\"{TargetResourceId:escapejson}/providers/Microsoft.Insights/diagnosticSettings?api-version=2021-05-01-preview\",\"urlParams\":[],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"\",\"columns\":[{\"path\":\"$.name\",\"columnid\":\"Setting\"},{\"path\":\"$.properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"$.properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"$.properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"$.properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"$.properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"$.properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"$.properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"$.properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"$.id\",\"columnid\":\"SettingId\"}]}}]}",
+        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GETARRAY\",\"path\":\"{SelectedResource:escapejson}{ChildPath:escapejson}/providers/Microsoft.Insights/diagnosticSettings?api-version=2021-05-01-preview\",\"urlParams\":[],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"\",\"columns\":[{\"path\":\"$.name\",\"columnid\":\"Setting\"},{\"path\":\"$.properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"$.properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"$.properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"$.properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"$.properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"$.properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"$.properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"$.properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"$.id\",\"columnid\":\"SettingId\"}]}}]}",
         "size": 0,
-        "title": "Live diagnostic settings - all returned settings, with their entries and destinations",
+        "title": "All diagnostic settings on the exact target, with their entries and destinations",
         "queryType": 12,
         "visualization": "table",
         "gridSettings": {
@@ -213,21 +401,21 @@
         "noDataMessageStyle": 0
       },
       "conditionalVisibility": {
-        "parameterName": "TargetResourceId",
+        "parameterName": "SelectedResource",
         "comparison": "isNotEqualTo",
-        "value": ""
+        "value": "NotSelected"
       },
       "name": "DiagnosticSettings"
     },
     {
       "type": 1,
       "content": {
-        "json": "**Reading settings:** one row is one diagnostic setting. Click **LogEntries** or **MetricEntries** to expand every JSON entry; `enabled: true` and `enabled: false` are preserved, as are `category` and `categoryGroup`. Click **Setting** for row details including the full destination identifiers, or scroll the grid horizontally. Entries belong only to the destinations on the same row. An absent optional array/field means the API did not supply it; it is not proof that the resource is unsupported. `logAnalyticsDestinationType` is the API value (for example, `Dedicated`), not an inferred mode.\n\nAn empty-success message applies only to its own completed request. Do not interpret results while either panel is loading or showing an error."
+        "json": "**Reading settings:** one row is one diagnostic setting. Click **LogEntries** or **MetricEntries** to expand every JSON entry; `enabled: true` and `enabled: false` are preserved, as are `category` and `categoryGroup`. Click **Setting** for row details including the full destination identifiers, or scroll the grid horizontally. Entries belong only to the destinations on the same row. An absent optional array or field means the API did not supply it; it is not proof that the resource is unsupported. `logAnalyticsDestinationType` is the API value, for example `Dedicated`, not an inferred mode.\n\nAn empty-success message applies only to its own completed request. Do not interpret results while either panel is loading or showing an error."
       },
       "conditionalVisibility": {
-        "parameterName": "TargetResourceId",
+        "parameterName": "SelectedResource",
         "comparison": "isNotEqualTo",
-        "value": ""
+        "value": "NotSelected"
       },
       "name": "SettingsGuide"
     },
@@ -235,9 +423,9 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GETARRAY\",\"path\":\"{TargetResourceId:escapejson}/providers/Microsoft.Insights/diagnosticSettingsCategories?api-version=2021-05-01-preview\",\"urlParams\":[],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"\",\"columns\":[{\"path\":\"$.name\",\"columnid\":\"Category\"},{\"path\":\"$.properties.categoryType\",\"columnid\":\"CategoryType\"},{\"path\":\"$.properties.categoryGroups\",\"columnid\":\"CategoryGroups\"},{\"path\":\"$.id\",\"columnid\":\"CategoryId\"}]}}]}",
+        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GETARRAY\",\"path\":\"{SelectedResource:escapejson}{ChildPath:escapejson}/providers/Microsoft.Insights/diagnosticSettingsCategories?api-version=2021-05-01-preview\",\"urlParams\":[],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"\",\"columns\":[{\"path\":\"$.name\",\"columnid\":\"Category\"},{\"path\":\"$.properties.categoryType\",\"columnid\":\"CategoryType\"},{\"path\":\"$.properties.categoryGroups\",\"columnid\":\"CategoryGroups\"},{\"path\":\"$.id\",\"columnid\":\"CategoryId\"}]}}]}",
         "size": 0,
-        "title": "Live supported categories and group memberships - exact target only",
+        "title": "Categories and group memberships available on the exact target",
         "queryType": 12,
         "visualization": "table",
         "gridSettings": {
@@ -257,16 +445,16 @@
         "noDataMessageStyle": 0
       },
       "conditionalVisibility": {
-        "parameterName": "TargetResourceId",
+        "parameterName": "SelectedResource",
         "comparison": "isNotEqualTo",
-        "value": ""
+        "value": "NotSelected"
       },
       "name": "SupportedCategories"
     },
     {
       "type": 1,
       "content": {
-        "json": "## How to compare and what v1 cannot tell you\n\nCompare each setting's log `category` with the live **Category** names. For a `categoryGroup`, inspect **CategoryGroups** membership (click to expand). Compare metric entries only with **Metrics** categories. **Available does not mean recommended**; v1 does not recommend `allLogs` or evaluate a baseline.\n\nMetric export is different from resource logs and from metrics available in Metrics Explorer; not every metric or dimension is exportable through diagnostic settings. Configuration metadata does not prove data is arriving at a destination. This workbook does not read log contents, destination contents, or keys.\n\nThis is a current, one-resource inspector: **no estate-wide configured/missing totals, production classification, compliance scoring, recommendations, history, or remediation**. ARM `GETARRAY` follows collection pages; it does not query every inventory resource. Both ARM tables have a 10,000-row display ceiling; a display limit is not a completeness guarantee. Different resource types, child services, RBAC, API availability, throttling, and refresh timing can affect results. v1 accepts resource-group-scoped IDs only and does not discover service children.\n\nViewers need access to the underlying resources as well as the workbook; sharing a workbook grants neither. Saving the workbook is the user's separate Azure action and requires workbook write permission in an approved resource group. No Azure tenant was accessed during development; local checks do not substitute for a portal smoke test.\n\n[README, import steps, permissions, and limitations](https://github.com/ppmiralles0110/DiagnosticSettingsMonWS/blob/ppmiralles0110-diagnostic-workbook-v1/README.md) | [Diagnostic settings documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings)"
+        "json": "## What this workbook cannot tell you\n\n**`No setting returned` is not a compliance verdict.** A resource appears there when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. The bulk read makes one ARM request per resource, and a resource whose request fails contributes no rows, exactly like a resource with no settings. Confirm individual resources in Step 3, and watch the Step 2 ARM panel for errors.\n\n**Matching is by resource ID string.** Bulk rows are attributed to a resource by stripping the `/providers/microsoft.insights/diagnosticSettings/...` suffix from each setting ID. If ARM returns the resource ID with different casing than Azure Resource Graph stored it, that resource can show as `No setting returned` even though Step 3 shows settings. Step 3 is authoritative.\n\n**Request volume.** Every selected resource costs one ARM request on every run and refresh. Narrow by resource type and deselect resources you do not need. Many resource types do not support diagnostic settings at all.\n\n**Coverage, not correctness.** Compare each setting's log `category` with the live **Category** names in Step 3, and check `categoryGroup` entries against **CategoryGroups**. Compare metric entries only with **Metrics** categories. **Available does not mean recommended**; this workbook does not recommend `allLogs` and does not evaluate a baseline. Metric export through diagnostic settings is different from resource logs and from metrics in Metrics Explorer; not every metric or dimension is exportable. Configuration metadata does not prove data is arriving at a destination. Log contents, destination contents, and keys are never read.\n\n**Scope limits.** Azure Resource Graph is RBAC-filtered and eventually consistent, returns at most 1,000 rows here, and dropdowns hold at most 1,000 items; a row limit is not a completeness guarantee. Service children such as `blobServices/default` are not listed by Azure Resource Graph, so they never appear in the bulk lists - use the child suffix in Step 3. There is no estate-wide total, production classification, compliance score, recommendation, history, or remediation, and no Azure Resource Graph table of diagnostic settings exists to build one from.\n\n**Access.** Viewers need read access to the underlying resources as well as to the workbook; sharing a workbook grants neither. Saving the workbook is your own separate Azure action and needs workbook write permission in a resource group you are allowed to use. No Azure tenant was accessed while building this workbook; local checks are not a substitute for trying it in the portal.\n\n[README, import steps, permissions and limitations](https://github.com/ppmiralles0110/DiagnosticSettingsMonWS/blob/main/README.md) | [Diagnostic settings documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings)"
       },
       "name": "GuidanceAndLimits"
     }
