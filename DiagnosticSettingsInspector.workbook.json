@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# Diagnostic Settings Coverage\n\nRead-only. Pick **subscriptions**, then **resource groups**, and this workbook lists the resources in that scope **with and without diagnostic settings**.\n\nInventory comes from Azure Resource Graph (ARG). Diagnostic settings come from **live Azure Resource Manager (ARM) reads, one read per selected resource**. Azure Resource Graph has no diagnostic settings table, so there is no way to answer this without reading each resource. No logs, no keys, no configuration changes, no backend, no deployment.\n\n## Step 0 - choose the scope\n\nKeep the scope small. Every resource left in **Resources to check** costs one live ARM request each time this page runs."
+        "json": "# Diagnostic Settings Coverage\n\nRead-only. Pick **subscriptions**, then **resource groups**, and this workbook lists the resources in that scope **with and without diagnostic settings**.\n\nInventory comes from Azure Resource Graph (ARG). Diagnostic settings come from **live Azure Resource Manager (ARM) reads, one read per selected resource**. Azure Resource Graph has no diagnostic settings table, so there is no way to answer this without reading each resource. No logs, no keys, no configuration changes, no backend, no deployment.\n\n## Step 0 - choose the scope\n\nKeep the scope small. Every resource left in **Resources to check** costs one live ARM request each time this page runs.\n\nIf **Step 1** shows a request error instead of a table, narrow **Resource types**: many Azure resource types do not support diagnostic settings at all, and reading one of those can fail the whole batch."
       },
       "name": "Introduction"
     },
@@ -118,7 +118,87 @@
     {
       "type": 1,
       "content": {
-        "json": "## Step 1 - coverage for the selected scope\n\nOne row per resource, plus one row per diagnostic setting found on it. Use the column filter on **Diagnostic settings** to split the list.\n\n`No setting returned` means this workbook received **no diagnostic setting rows** for that resource. That happens when the resource genuinely has none, **and also** when the read failed, was denied, was throttled, or the type does not support diagnostic settings. Check **Step 3** before treating a resource as unconfigured, and read the raw ARM panel in Step 2 for errors."
+        "json": "## Step 1 - the two live sources\n\nThese are the raw reads that Step 2 combines. They stay visible on purpose: **this is where request errors appear**. If either panel shows an error, Step 2 is incomplete and must not be read as 'not configured'."
+      },
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "SourcesIntro"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})\n| where id in~ ({Resources})\n| project Name = name, Type = type, ResourceGroup = resourceGroup, SubscriptionId = subscriptionId, Location = location, ResourceId = id\n| order by Type asc, Name asc\n| take 1000",
+        "size": 0,
+        "title": "Source A - resource inventory from Azure Resource Graph (up to 1,000 rows)",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscriptions}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 1000,
+          "filter": true
+        },
+        "noDataMessage": "No resources returned for the selected scope."
+      },
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "ScopeInventory"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GET\",\"path\":\"{Resources}/providers/Microsoft.Insights/diagnosticSettings\",\"urlParams\":[{\"key\":\"api-version\",\"value\":\"2021-05-01-preview\"}],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"$.value\",\"columns\":[{\"path\":\"id\",\"columnid\":\"ResourceId\",\"substringRegexMatch\":\"(\\\\/subscriptions.*)(\\\\/providers\\\\/[Mm]icrosoft\\\\.[Ii]nsights\\\\/[Dd]iagnostic[Ss]ettings.*)\",\"substringReplace\":\"$1\"},{\"path\":\"name\",\"columnid\":\"SettingName\"},{\"path\":\"properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"id\",\"columnid\":\"SettingId\"}]}}]}",
+        "size": 0,
+        "title": "Source B - live diagnostic settings from ARM (one read per selected resource)",
+        "queryType": 12,
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 10000,
+          "filter": true,
+          "formatters": [
+            {
+              "columnMatch": "LogEntries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            },
+            {
+              "columnMatch": "MetricEntries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            }
+          ]
+        },
+        "noDataMessage": "No diagnostic settings returned for any selected resource."
+      },
+      "conditionalVisibility": {
+        "parameterName": "Resources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "DiagnosticSettingsFanout"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Step 2 - coverage for the selected scope\n\nSource A joined to Source B. One row per resource, plus one row per diagnostic setting found on it. Use the column filter on **Diagnostic settings** to split the list.\n\n`No setting returned` means this workbook received **no diagnostic setting rows** for that resource. That happens when the resource genuinely has none, **and also** when the read failed, was denied, was throttled, or the type does not support diagnostic settings. Check Step 1 for errors and confirm in Step 3 before treating a resource as unconfigured."
       },
       "conditionalVisibility": {
         "parameterName": "Resources",
@@ -222,87 +302,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## Step 2 - raw source data\n\nThe two panels below are the inputs to Step 1. Keep them visible: **this is where request errors appear**. If the ARM panel shows an error, the coverage lists above are incomplete and must not be read as 'not configured'."
-      },
-      "conditionalVisibility": {
-        "parameterName": "Resources",
-        "comparison": "isNotEqualTo",
-        "value": ""
-      },
-      "name": "RawIntro"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})\n| where id in~ ({Resources})\n| project Name = name, Type = type, ResourceGroup = resourceGroup, SubscriptionId = subscriptionId, Location = location, ResourceId = id\n| order by Type asc, Name asc\n| take 1000",
-        "size": 0,
-        "title": "Source A - resource inventory from Azure Resource Graph (up to 1,000 rows)",
-        "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
-        "crossComponentResources": [
-          "{Subscriptions}"
-        ],
-        "visualization": "table",
-        "gridSettings": {
-          "rowLimit": 1000,
-          "filter": true
-        },
-        "noDataMessage": "No resources returned for the selected scope."
-      },
-      "conditionalVisibility": {
-        "parameterName": "Resources",
-        "comparison": "isNotEqualTo",
-        "value": ""
-      },
-      "name": "ScopeInventory"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GET\",\"path\":\"{Resources}/providers/Microsoft.Insights/diagnosticSettings\",\"urlParams\":[{\"key\":\"api-version\",\"value\":\"2021-05-01-preview\"}],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"$.value\",\"columns\":[{\"path\":\"id\",\"columnid\":\"ResourceId\",\"substringRegexMatch\":\"(\\\\/subscriptions.*)(\\\\/providers\\\\/[Mm]icrosoft\\\\.[Ii]nsights\\\\/[Dd]iagnostic[Ss]ettings.*)\",\"substringReplace\":\"$1\"},{\"path\":\"name\",\"columnid\":\"SettingName\"},{\"path\":\"properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"id\",\"columnid\":\"SettingId\"}]}}]}",
-        "size": 0,
-        "title": "Source B - live diagnostic settings from ARM (one read per selected resource)",
-        "queryType": 12,
-        "visualization": "table",
-        "gridSettings": {
-          "rowLimit": 10000,
-          "filter": true,
-          "formatters": [
-            {
-              "columnMatch": "LogEntries",
-              "formatter": 1,
-              "formatOptions": {
-                "linkTarget": "CellDetails",
-                "linkIsContextBlade": true,
-                "customColumnWidthSetting": "30ch"
-              }
-            },
-            {
-              "columnMatch": "MetricEntries",
-              "formatter": 1,
-              "formatOptions": {
-                "linkTarget": "CellDetails",
-                "linkIsContextBlade": true,
-                "customColumnWidthSetting": "30ch"
-              }
-            }
-          ]
-        },
-        "noDataMessage": "No diagnostic settings returned for any selected resource."
-      },
-      "conditionalVisibility": {
-        "parameterName": "Resources",
-        "comparison": "isNotEqualTo",
-        "value": ""
-      },
-      "name": "DiagnosticSettingsFanout"
-    },
-    {
-      "type": 1,
-      "content": {
-        "json": "## Step 3 - authoritative detail for one resource\n\nSelect a row in the Step 1 grid. Only this section performs a dedicated, paged read for a single target, so **use it to confirm anything the bulk lists suggest**.\n\nTo inspect a service child that Azure Resource Graph does not list as its own resource, add its suffix below. Example: for a storage account's Blob service, enter `/blobServices/default`. A parent storage account and its Blob service are different targets with different settings."
+        "json": "## Step 3 - authoritative detail for one resource\n\nSelect a row in the Step 2 grid. Only this section performs a dedicated, paged read for a single target, so **use it to confirm anything the bulk lists suggest**.\n\nTo inspect a service child that Azure Resource Graph does not list as its own resource, add its suffix below. Example: for a storage account's Blob service, enter `/blobServices/default`. A parent storage account and its Blob service are different targets with different settings."
       },
       "conditionalVisibility": {
         "parameterName": "SelectedResource",
@@ -454,7 +454,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## What this workbook cannot tell you\n\n**`No setting returned` is not a compliance verdict.** A resource appears there when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. The bulk read makes one ARM request per resource, and a resource whose request fails contributes no rows, exactly like a resource with no settings. Confirm individual resources in Step 3, and watch the Step 2 ARM panel for errors.\n\n**Matching is by resource ID string.** Bulk rows are attributed to a resource by stripping the `/providers/microsoft.insights/diagnosticSettings/...` suffix from each setting ID. If ARM returns the resource ID with different casing than Azure Resource Graph stored it, that resource can show as `No setting returned` even though Step 3 shows settings. Step 3 is authoritative.\n\n**Request volume.** Every selected resource costs one ARM request on every run and refresh. Narrow by resource type and deselect resources you do not need. Many resource types do not support diagnostic settings at all.\n\n**Coverage, not correctness.** Compare each setting's log `category` with the live **Category** names in Step 3, and check `categoryGroup` entries against **CategoryGroups**. Compare metric entries only with **Metrics** categories. **Available does not mean recommended**; this workbook does not recommend `allLogs` and does not evaluate a baseline. Metric export through diagnostic settings is different from resource logs and from metrics in Metrics Explorer; not every metric or dimension is exportable. Configuration metadata does not prove data is arriving at a destination. Log contents, destination contents, and keys are never read.\n\n**Scope limits.** Azure Resource Graph is RBAC-filtered and eventually consistent, returns at most 1,000 rows here, and dropdowns hold at most 1,000 items; a row limit is not a completeness guarantee. Service children such as `blobServices/default` are not listed by Azure Resource Graph, so they never appear in the bulk lists - use the child suffix in Step 3. There is no estate-wide total, production classification, compliance score, recommendation, history, or remediation, and no Azure Resource Graph table of diagnostic settings exists to build one from.\n\n**Access.** Viewers need read access to the underlying resources as well as to the workbook; sharing a workbook grants neither. Saving the workbook is your own separate Azure action and needs workbook write permission in a resource group you are allowed to use. No Azure tenant was accessed while building this workbook; local checks are not a substitute for trying it in the portal.\n\n[README, import steps, permissions and limitations](https://github.com/ppmiralles0110/DiagnosticSettingsMonWS/blob/main/README.md) | [Diagnostic settings documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings)"
+        "json": "## What this workbook cannot tell you\n\n**`No setting returned` is not a compliance verdict.** A resource appears there when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. The bulk read makes one ARM request per resource, and a resource whose request fails contributes no rows, exactly like a resource with no settings. Confirm individual resources in Step 3, and watch the Step 1 ARM panel for errors.\n\n**Matching is by resource ID string.** Bulk rows are attributed to a resource by stripping the `/providers/microsoft.insights/diagnosticSettings/...` suffix from each setting ID. If ARM returns the resource ID with different casing than Azure Resource Graph stored it, that resource can show as `No setting returned` even though Step 3 shows settings. Step 3 is authoritative.\n\n**Request volume.** Every selected resource costs one ARM request on every run and refresh. Narrow by resource type and deselect resources you do not need. Many resource types do not support diagnostic settings at all, and one failing read can fail the whole batch panel.\n\n**Coverage, not correctness.** Compare each setting's log `category` with the live **Category** names in Step 3, and check `categoryGroup` entries against **CategoryGroups**. Compare metric entries only with **Metrics** categories. **Available does not mean recommended**; this workbook does not recommend `allLogs` and does not evaluate a baseline. Metric export through diagnostic settings is different from resource logs and from metrics in Metrics Explorer; not every metric or dimension is exportable. Configuration metadata does not prove data is arriving at a destination. Log contents, destination contents, and keys are never read.\n\n**Scope limits.** Azure Resource Graph is RBAC-filtered and eventually consistent, returns at most 1,000 rows here, and dropdowns hold at most 1,000 items; a row limit is not a completeness guarantee. Service children such as `blobServices/default` are not listed by Azure Resource Graph, so they never appear in the bulk lists - use the child suffix in Step 3. There is no estate-wide total, production classification, compliance score, recommendation, history, or remediation, and no Azure Resource Graph table of diagnostic settings exists to build one from.\n\n**Access.** Viewers need read access to the underlying resources as well as to the workbook; sharing a workbook grants neither. Saving the workbook is your own separate Azure action and needs workbook write permission in a resource group you are allowed to use. No Azure tenant was accessed while building this workbook; local checks are not a substitute for trying it in the portal.\n\n[README, import steps, permissions and limitations](https://github.com/ppmiralles0110/DiagnosticSettingsMonWS/blob/main/README.md) | [Diagnostic settings documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings)"
       },
       "name": "GuidanceAndLimits"
     }

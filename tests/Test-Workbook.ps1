@@ -170,15 +170,19 @@ if ($SchemaPath) {
 $names = @()
 $parameters = @{}
 $items = @{}
+$itemIndex = @{}
 $armQueries = @{}
 $merges = @{}
 $detailSuffixes = @{
     DiagnosticSettings = 'diagnosticSettings'
     SupportedCategories = 'diagnosticSettingsCategories'
 }
+$position = 0
 foreach ($item in $workbook.items) {
     Assert-That (-not $items.ContainsKey($item.name)) "Duplicate item name: $($item.name)"
     $items[$item.name] = $item
+    $itemIndex[$item.name] = $position
+    $position++
     Assert-That ($item.type -in @(1, 3, 9)) 'Only text, parameter, and query items are expected.'
     if ($item.type -eq 9) {
         Assert-That ($item.content.version -ceq 'KqlParameterItem/1.0') 'Unexpected parameter version.'
@@ -287,6 +291,11 @@ foreach ($name in $merges.Keys) {
     $join = $merge.merges[0]
     Assert-That ($join.leftTable -ceq 'ScopeInventory' -and $join.rightTable -ceq 'DiagnosticSettingsFanout') 'Merged views must join the inventory to the live ARM reads.'
     Assert-That ($items.ContainsKey($join.leftTable) -and $items.ContainsKey($join.rightTable)) 'Merged views must reference real steps by name.'
+    # A merge step can only read steps that appear before it; otherwise the portal
+    # reports "no steps that export data at this point" / "Could not find table".
+    foreach ($side in @($join.leftTable, $join.rightTable)) {
+        Assert-That ($itemIndex[$side] -lt $itemIndex[$name]) "Merge '$name' must appear after its source step '$side'."
+    }
     Assert-That ($join.leftColumn -ceq 'ResourceId' -and $join.rightColumn -ceq 'ResourceId') 'Join on the resource ID only.'
     foreach ($projection in $merge.projectRename) {
         if ($projection.Contains('isNewItem') -and $projection.isNewItem) {

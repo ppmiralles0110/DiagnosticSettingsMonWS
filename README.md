@@ -34,15 +34,17 @@ These steps follow Microsoft's [create/edit workbook](https://learn.microsoft.co
 2. Select **Resource groups**. Values are full RG IDs and labels include the subscription ID, so duplicate names stay distinct. There is intentionally **no default** here: choosing *All* across many subscriptions can queue thousands of live ARM reads. Recheck this after changing subscriptions.
 3. Optionally narrow **Resource types**. This is the main cost control - many Azure resource types do not support diagnostic settings at all, and reading them only produces errors and wasted requests.
 4. **Resources to check** defaults to every resource matching the filters above. Deselect anything you do not need; each remaining resource costs one ARM request per run and refresh.
-5. Read **Step 1**. Every in-scope resource appears with a **Diagnostic settings** column of either `Setting returned` or `No setting returned`, one row per returned setting. Use the grid filter to split the list. A second grid below lists only the resources that returned nothing.
-6. **Step 2** shows the two raw sources - the Resource Graph inventory and the live ARM results. **This is where request errors appear.** If the ARM panel shows an error, Step 1 is incomplete.
-7. **Step 3**: select a row in the Step 1 grid to run a dedicated, paged read for that single resource. Use it to confirm anything the bulk lists suggest. Click **LogEntries**, **MetricEntries**, and **CategoryGroups** to expand the JSON cells; click a **Setting** for full row details, or scroll horizontally for all destination IDs.
+5. Read **Step 1**. These are the two raw sources — the Resource Graph inventory and the live ARM results — and they stay visible on purpose: **this is where request errors appear**. If the ARM panel shows an error instead of a table, narrow **Resource types**; one resource type that does not support diagnostic settings can fail the whole batch.
+6. Read **Step 2**. Every in-scope resource appears with a **Diagnostic settings** column of either `Setting returned` or `No setting returned`, one row per returned setting. Use the grid filter to split the list. A second grid below lists only the resources that returned nothing.
+7. **Step 3**: select a row in the Step 2 grid to run a dedicated, paged read for that single resource. Use it to confirm anything the bulk lists suggest. Click **LogEntries**, **MetricEntries**, and **CategoryGroups** to expand the JSON cells; click a **Setting** for full row details, or scroll horizontally for all destination IDs.
+
+> The sources come first because a Workbooks **merge step can only read steps that appear before it**. Moving the coverage grids above their sources makes the portal report *"There are no steps that export data at this point"* and *"Could not find table"*. `tests/Test-Workbook.ps1` now asserts that ordering.
 
 Each setting stays on its own row, with its complete log/metric arrays, enabled **and** disabled flags, category/group choices, and its own destination identifiers: workspace, storage account, Event Hubs authorization rule and hub name, marketplace partner, and Log Analytics destination type. Missing optional fields remain missing, not inferred. This is a comparison of configuration against availability, not a compliance evaluator. **Available != recommended**; `allLogs` is not recommended by default.
 
 ### `No setting returned` is not proof of "not configured"
 
-A resource lands in that group when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. A request that fails contributes no rows, exactly like a resource with no settings. Always check the Step 2 ARM panel for errors, and confirm individual resources in Step 3 before acting.
+A resource lands in that group when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. A request that fails contributes no rows, exactly like a resource with no settings. Always check the Step 1 ARM panel for errors, and confirm individual resources in Step 3 before acting.
 
 Bulk rows are attributed to a resource by stripping the `/providers/microsoft.insights/diagnosticSettings/...` suffix from each setting ID. If ARM returns the resource ID with different casing than Resource Graph stored it, that resource can show as `No setting returned` even though Step 3 shows settings. **Step 3 is authoritative.**
 
@@ -100,7 +102,7 @@ Invoke-WebRequest 'https://raw.githubusercontent.com/microsoft/Application-Insig
 pwsh -NoProfile -File .\tests\Test-Workbook.ps1 -SchemaPath $schema
 ```
 
-The official schema is permissive: schema/fixture success cannot prove portal rendering, KQL execution, fan-out behaviour, parameter gating, RBAC, or service responses. **No Azure tenant was accessed and no live Azure validation was performed.** After import, start with one small resource group and verify: a resource with multiple settings, a resource with none, a resource type that does not support diagnostic settings, and an approved child target. Confirm that errors stay visible in Step 2 rather than silently reducing Step 1. No permission changes are needed for this check.
+The official schema is permissive: schema/fixture success cannot prove portal rendering, KQL execution, fan-out behaviour, parameter gating, RBAC, or service responses. **No Azure tenant was accessed and no live Azure validation was performed.** After import, start with one small resource group and verify: a resource with multiple settings, a resource with none, a resource type that does not support diagnostic settings, and an approved child target. Confirm that errors stay visible in Step 1 rather than silently reducing Step 2. No permission changes are needed for this check.
 
 ## Implementation references
 
