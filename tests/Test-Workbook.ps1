@@ -227,14 +227,14 @@ foreach ($item in $workbook.items) {
     Assert-That ($query.transformers.Count -eq 1 -and $query.transformers[0].type -ceq 'jsonpath') 'Only a direct JSONPath projection is expected.'
     if ($item.name -ceq 'DiagnosticSettingsFanout') {
         Assert-That ($query.method -ceq 'GET') 'Bulk reads fan a plain GET across the selected resources.'
-        Assert-That ($query.path -ceq '{Resources}/providers/Microsoft.Insights/diagnosticSettings') 'Bulk path must fan out over the resource parameter.'
+        Assert-That ($query.path -ceq '{TargetResources}/providers/Microsoft.Insights/diagnosticSettings') 'Bulk path must fan out over the resource parameter.'
         Assert-That ($query.urlParams.Count -eq 1 -and $query.urlParams[0].key -ceq 'api-version' -and
             $query.urlParams[0].value -ceq '2021-05-01-preview') 'Pin the documented diagnostic settings API version.'
         Assert-That ($query.transformers[0].settings.tablePath -ceq '$.value') 'A plain GET returns a value wrapper.'
         $attribution = @($query.transformers[0].settings.columns | Where-Object { $_.columnid -ceq 'ResourceId' })
         Assert-That ($attribution.Count -eq 1 -and $attribution[0].path -ceq 'id' -and
             $attribution[0].substringReplace -ceq '$1') 'Bulk rows must be attributed back to their own resource ID.'
-        Assert-That ($item.conditionalVisibility.parameterName -ceq 'Resources') 'Bulk reads must wait for an explicit resource selection.'
+        Assert-That ($item.conditionalVisibility.parameterName -ceq 'TargetResources') 'Bulk reads must wait for an explicit resource selection.'
         continue
     }
     Assert-That ($detailSuffixes.ContainsKey($item.name)) 'Unexpected ARM panel.'
@@ -265,21 +265,49 @@ Assert-That ($parameters.ResourceGroups.query.Contains("type =~ 'microsoft.resou
 Assert-That ($parameters.ResourceGroups.typeSettings.selectAllValue -ceq '*' -and
     $parameters.ResourceGroups.typeSettings.additionalResourceOptions[0] -ceq 'value::all') 'RG All sentinel must match the scope queries.'
 Assert-That ($parameters.ResourceTypes.type -eq 2 -and $parameters.ResourceTypes.multiSelect -and
-    $parameters.ResourceTypes.typeSettings.selectAllValue -ceq '*' -and $parameters.ResourceTypes.value[0] -ceq 'value::all') 'Type filter must default to all types in scope.'
-Assert-That ($parameters.Resources.type -eq 5 -and $parameters.Resources.multiSelect -and $parameters.Resources.isRequired -and
-    $parameters.Resources.value[0] -ceq 'value::all' -and
-    $parameters.Resources.typeSettings.additionalResourceOptions[0] -ceq 'value::all') 'Bulk target list must be a resource multiselect that can cover the whole filtered scope.'
-foreach ($parameter in @($parameters.Subscriptions, $parameters.ResourceGroups, $parameters.ResourceTypes, $parameters.Resources)) {
+    $parameters.ResourceTypes.isRequired) 'Type filter must be a required multiselect.'
+# A single failing sub-request fails the whole batched ARM query, so the type filter
+# must not offer an "All" escape hatch that silently re-adds unsupported types.
+Assert-That (-not $parameters.ResourceTypes.ContainsKey('value') -and
+    $parameters.ResourceTypes.typeSettings.additionalResourceOptions.Count -eq 0 -and
+    -not $parameters.ResourceTypes.typeSettings.ContainsKey('selectAllValue')) 'Type filter must not offer a blanket All option.'
+Assert-That ($parameters.TargetResources.type -eq 5 -and $parameters.TargetResources.multiSelect -and $parameters.TargetResources.isRequired -and
+    -not $parameters.TargetResources.ContainsKey('value') -and -not $parameters.TargetResources.ContainsKey('defaultValue') -and
+    $parameters.TargetResources.typeSettings.additionalResourceOptions[0] -ceq 'value::all') 'Bulk target list must start empty and still offer All.'
+foreach ($parameter in @($parameters.Subscriptions, $parameters.ResourceGroups, $parameters.ResourceTypes, $parameters.TargetResources)) {
     Assert-That ($parameter.quote -ceq "'" -and $parameter.delimiter -ceq ',') 'KQL multiselect must be quoted and comma delimited.'
 }
 
 $rgFilter = "| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})"
-$typeFilter = "| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})"
-foreach ($query in @($parameters.Resources.query, $items.ScopeInventory.content.query)) {
+$typeFilter = '| where tolower(type) in~ ({ResourceTypes})'
+foreach ($query in @($parameters.TargetResources.query, $items.ScopeInventory.content.query)) {
     Assert-That ($query.Contains($rgFilter) -and $query.Contains($typeFilter)) 'The picker and the inventory must share every scope filter.'
 }
 Assert-That ($parameters.ResourceTypes.query.Contains($rgFilter)) 'Type choices must be scoped to the selected resource groups.'
-Assert-That ($items.ScopeInventory.content.query.Contains('| where id in~ ({Resources})')) 'Inventory must cover exactly the resources that are read.'
+
+# The pre-selected set is the documented "has platform logs or metrics" list. Types
+# outside it stay listed but unselected, so the user still chooses.
+Assert-That ($parameters.ResourceTypes.query.Contains('| extend Supported = TypeName in (') -and
+    $parameters.ResourceTypes.query.Contains('selected = Supported')) 'Supported types must be pre-selected, not hidden.'
+foreach ($supported in "'microsoft.storage/storageaccounts'", "'microsoft.keyvault/vaults'",
+    "'microsoft.compute/virtualmachines'", "'microsoft.cognitiveservices/accounts'",
+    "'microsoft.storage/storageaccounts/blobservices'", "'microsoft.web/sites'") {
+    Assert-That ($parameters.ResourceTypes.query.Contains($supported)) "Supported-type list must contain $supported."
+}
+Assert-That (-not $parameters.ResourceTypes.query.Contains("'microsoft.managedidentity/userassignedidentities'")) 'Types with no platform logs or metrics must not be pre-selected.'
+Assert-That ($parameters.ResourceTypes.query.Contains('not documented for platform logs or metrics')) 'Unlisted types must be labelled, not silently dropped.'
+
+Assert-That ($items.ScopeInventory.content.query.Contains('| where id in~ ({TargetResources})')) 'Inventory must cover exactly the resources that are read.'
+
+# Resources that were skipped must be reported as skipped, never folded into coverage.
+$notChecked = $items.NotChecked
+Assert-That ($null -ne $notChecked -and $notChecked.content.queryType -eq 1) 'Skipped resources need their own Azure Resource Graph grid.'
+Assert-That ($notChecked.content.query.Contains('| where tolower(type) !in~ ({ResourceTypes})')) 'The skipped grid must be the exact complement of the checked types.'
+Assert-That ($notChecked.content.query.Contains("Status = 'Not checked")) 'Skipped resources must be labelled Not checked.'
+foreach ($forbidden in 'compliant', 'Compliant', 'not configured', 'No setting returned') {
+    Assert-That (-not $notChecked.content.query.Contains($forbidden)) "Skipped resources must not be given a $forbidden verdict."
+}
+Assert-That (-not $merges.Values.projectRename.originalName.Contains('[NotChecked].ResourceId')) 'Skipped resources must stay out of the coverage merges.'
 Assert-That ($items.ScopeInventory.content.query.EndsWith('| take 1000') -and
     $items.ScopeInventory.content.gridSettings.rowLimit -eq 1000) 'Inventory has an explicit, documented 1,000-row cap.'
 

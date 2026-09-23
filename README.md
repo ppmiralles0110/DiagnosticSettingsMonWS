@@ -14,7 +14,7 @@ Azure Resource Graph has **no diagnostic settings table**, so no single query ca
 2. fans a live ARM `GET` out across the selected resources, **one request per resource**, then
 3. joins the two client-side so every in-scope resource is shown with or without the settings that came back.
 
-That is the same fan-out pattern Microsoft uses in its published [AMA Health workbook](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Azure%20Monitor%20-%20Agents/AMA%20Health/AMA%20Health.workbook). It also means **request volume grows with the number of selected resources**, which is why the scope filters are deliberately strict.
+That is the same fan-out pattern Microsoft uses in its published [AMA Health workbook](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Azure%20Monitor%20-%20Agents/AMA%20Health/AMA%20Health.workbook). It also means **request volume grows with the number of selected resources**, which is why the scope filters are deliberately strict — and because the fan-out is one batched query, **it is only as reliable as its least-supported resource**. See [Why resource types are pre-filtered](#why-resource-types-are-pre-filtered).
 
 ## Import into Azure
 
@@ -32,15 +32,30 @@ These steps follow Microsoft's [create/edit workbook](https://learn.microsoft.co
 
 1. Select one or more **Subscriptions**.
 2. Select **Resource groups**. Values are full RG IDs and labels include the subscription ID, so duplicate names stay distinct. There is intentionally **no default** here: choosing *All* across many subscriptions can queue thousands of live ARM reads. Recheck this after changing subscriptions.
-3. Optionally narrow **Resource types**. This is the main cost control - many Azure resource types do not support diagnostic settings at all, and reading them only produces errors and wasted requests.
-4. **Resources to check** defaults to every resource matching the filters above. Deselect anything you do not need; each remaining resource costs one ARM request per run and refresh.
-5. Read **Step 1**. These are the two raw sources — the Resource Graph inventory and the live ARM results — and they stay visible on purpose: **this is where request errors appear**. If the ARM panel shows an error instead of a table, narrow **Resource types**; one resource type that does not support diagnostic settings can fail the whole batch.
+3. Check **Resource types**. It is **pre-selected for you**: every type in scope that Azure Monitor documents as having platform logs or metrics is ticked, and every other type is listed but left unticked and labelled `[not documented for platform logs or metrics]`. There is deliberately no *All* option here — see [Why resource types are pre-filtered](#why-resource-types-are-pre-filtered).
+4. **Resources to check** starts **empty**, so no ARM call runs until you choose. Pick *All* for the whole filtered scope, or pick individual resources. Each selection is one ARM request per run and refresh, so keep it to a few hundred at most.
+5. Read **Step 1**. These are the raw sources — the Resource Graph inventory and the live ARM results — and they stay visible on purpose: **this is where request errors appear**. A third grid lists resources in your resource groups that were **not** checked because their type is not selected; no conclusion is drawn about those. If the ARM panel shows an error instead of a table, deselect resource types (or individual resources) until it succeeds; the last thing you removed is the one that fails.
 6. Read **Step 2**. Every in-scope resource appears with a **Diagnostic settings** column of either `Setting returned` or `No setting returned`, one row per returned setting. Use the grid filter to split the list. A second grid below lists only the resources that returned nothing.
 7. **Step 3**: select a row in the Step 2 grid to run a dedicated, paged read for that single resource. Use it to confirm anything the bulk lists suggest. Click **LogEntries**, **MetricEntries**, and **CategoryGroups** to expand the JSON cells; click a **Setting** for full row details, or scroll horizontally for all destination IDs.
 
 > The sources come first because a Workbooks **merge step can only read steps that appear before it**. Moving the coverage grids above their sources makes the portal report *"There are no steps that export data at this point"* and *"Could not find table"*. `tests/Test-Workbook.ps1` now asserts that ordering.
 
 Each setting stays on its own row, with its complete log/metric arrays, enabled **and** disabled flags, category/group choices, and its own destination identifiers: workspace, storage account, Event Hubs authorization rule and hub name, marketplace partner, and Log Analytics destination type. Missing optional fields remain missing, not inferred. This is a comparison of configuration against availability, not a compliance evaluator. **Available != recommended**; `allLogs` is not recommended by default.
+
+### Why resource types are pre-filtered
+
+The bulk read is a single **batched** ARM query: one sub-request per selected resource. Azure Workbooks has no per-request error tolerance for this, so **one failing sub-request fails the entire grid** and you get `'DiagnosticSettingsFanout' query failed: An unknown error has occurred.` instead of any results.
+
+The most common cause is a resource whose type has no platform logs or metrics at all — user-assigned managed identities, for example. Reading `Microsoft.Insights/diagnosticSettings` on those does not return an empty list; it fails, and takes the whole grid with it.
+
+So the **Resource types** picker pre-selects only the types that Azure Monitor's [supported resource log categories reference](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/logs-index) documents as having platform logs or metrics. This matches how Microsoft's own [AMA Health workbook](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Azure%20Monitor%20-%20Agents/AMA%20Health/AMA%20Health.workbook) constrains its fan-out parameter to two VM types.
+
+Caveats, stated plainly:
+
+- The list is a **documentation snapshot taken when this workbook was built**, not a live capability probe. A newly supported type can be missing from it.
+- A type being on the list does not guarantee every resource of that type will read successfully.
+- Unlisted types are **not hidden and not judged** — they are selectable, and any in-scope resource that is not checked is reported in the "NOT checked" grid in Step 1 rather than being counted as having no settings.
+- Throttling (`429`) or a resource deleted mid-query can still fail the batch even when every type is supported. Reduce the selection and retry.
 
 ### `No setting returned` is not proof of "not configured"
 
@@ -80,7 +95,8 @@ The bulk panel issues the first one per selected resource. The Step 3 panels use
 - **Coverage is per selected resource, not estate-wide:** there is no configured/missing total for a subscription, no production classification, no baseline, exemptions, compliance score, recommendation engine, historical snapshot, or remediation - and no Resource Graph table of diagnostic settings to build one from. ARG is eventually consistent and RBAC-filtered.
 - **Stale selection:** the Step 3 target does not change when the Step 0 filters change. If you narrow the scope after selecting a row, the selection can stay behind. The exact ARM target is displayed above the panels - check it.
 - **Bounded results:** the inventory query and the resource picker each take at most **1,000 rows/items**, matching an ARG result page and the dropdown limit. No paging/export engine is provided. ARG source queries support at most 1,000 subscriptions. Grids have a 10,000-row ceiling; a row limit is not a completeness guarantee, and grid search affects returned rows only.
-- **Request volume:** every selected resource costs one ARM request on every run and refresh. Narrow by resource type and deselect resources you do not need.
+- **Request volume:** every selected resource costs one ARM request on every run and refresh. The picker starts empty for this reason. Narrow by resource type and deselect resources you do not need.
+- **One failure fails the grid:** the bulk read is a single batched ARM query with no per-request error tolerance. Any sub-request that fails — unsupported resource type, throttling, a resource deleted mid-query — fails the whole panel rather than returning partial results. See [Why resource types are pre-filtered](#why-resource-types-are-pre-filtered).
 - **Not an atomic snapshot:** the panels are separate live reads; refresh after external changes.
 - **Logs versus metrics:** exported platform metrics differ from resource logs and from Metrics Explorer availability. Not every metric/dimension is exportable through diagnostic settings. Enabled configuration does not prove delivery, ingestion, retention, or destination health. See [diagnostic settings](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings).
 
@@ -92,7 +108,7 @@ Run from the repository root with **PowerShell 7** (no packages required):
 pwsh -NoProfile -File .\tests\Test-Workbook.ps1
 ```
 
-The check parses the outer JSON and every nested ARM/merge query, validates parameter dependencies and forward references, confirms the scope filters are shared by the picker and the inventory, enforces a read-only endpoint allowlist, and verifies that every merge column exists in the step it claims to come from. It then runs fixtures for multiple settings, disabled entries, category groups, metrics-only settings, missing optional arrays, empty arrays, pagination, a child target, bulk row attribution, the with/without join, the anti-join, a resource-ID casing mismatch, and denied/unsupported/malformed reads - asserting that failures stay failures and never become coverage. It models only the JSONPath and merge subset this workbook uses, **not the Azure Workbooks runtime**.
+The check parses the outer JSON and every nested ARM/merge query, validates parameter dependencies and forward references, confirms the scope filters are shared by the picker and the inventory, asserts the resource-type gate cannot be bypassed by an *All* option and that skipped resources are reported as skipped rather than as uncovered, enforces a read-only endpoint allowlist, and verifies that every merge column exists in the step it claims to come from. It then runs fixtures for multiple settings, disabled entries, category groups, metrics-only settings, missing optional arrays, empty arrays, pagination, a child target, bulk row attribution, the with/without join, the anti-join, a resource-ID casing mismatch, and denied/unsupported/malformed reads - asserting that failures stay failures and never become coverage. It models only the JSONPath and merge subset this workbook uses, **not the Azure Workbooks runtime**.
 
 To additionally check the official schema, download the pinned public schema locally and pass its path (no Azure connection):
 
@@ -107,6 +123,7 @@ The official schema is permissive: schema/fixture success cannot prove portal re
 ## Implementation references
 
 - [Workbook ARM and ARG data sources](https://learn.microsoft.com/en-us/azure/azure-monitor/visualize/workbooks-data-sources)
+- [Supported resource log categories by resource type](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/logs-index) - the source of the pre-selected resource-type list
 - [Workbook JSONPath transformations](https://learn.microsoft.com/en-us/azure/azure-monitor/visualize/workbooks-jsonpath), [merge data source](https://learn.microsoft.com/en-us/azure/azure-monitor/visualize/workbooks-data-sources#merge), [text parameter validation](https://learn.microsoft.com/en-us/azure/azure-monitor/visualize/workbooks-text#add-validations), and [cell/row details links](https://learn.microsoft.com/en-us/azure/azure-monitor/visualize/workbooks-link-actions)
 - [Official ARM fan-out example (AMA Health)](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Azure%20Monitor%20-%20Agents/AMA%20Health/AMA%20Health.workbook) and [official anti-join merge example](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Azure%20Advisor/Cost%20Optimization/Storage/Storage.workbook)
 - [Official scoped resource picker example](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Azure%20Monitor%20-%20Getting%20Started/Resource%20Picker/Resource%20Picker.workbook), [official GETARRAY example](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/Workbooks/Windows%20Virtual%20Desktop/CheckAMAConfiguration/CheckAMAConfiguration.workbook), and [workbook schema](https://github.com/microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json)
