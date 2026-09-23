@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# Diagnostic Settings Coverage\n\nRead-only. Pick **subscriptions**, then **resource groups**, and this workbook lists the resources in that scope **with and without diagnostic settings**.\n\nInventory comes from Azure Resource Graph (ARG). Diagnostic settings come from **live Azure Resource Manager (ARM) reads, one read per selected resource**. Azure Resource Graph has no diagnostic settings table, so there is no way to answer this without reading each resource. No logs, no keys, no configuration changes, no backend, no deployment.\n\n## Step 0 - choose the scope\n\nKeep the scope small. Every resource left in **Resources to check** costs one live ARM request each time this page runs."
+        "json": "# Diagnostic Settings Coverage\r\n\r\nRead-only. Pick **subscriptions**, then **resource groups**, then the **resources to check**, and this workbook lists them **with and without diagnostic settings**.\r\n\r\nInventory comes from Azure Resource Graph (ARG). Diagnostic settings come from **live Azure Resource Manager (ARM) reads, one read per selected resource**. Azure Resource Graph has no diagnostic settings table, so there is no way to answer this without reading each resource. No logs, no keys, no configuration changes, no backend, no deployment.\r\n\r\n## Step 0 - choose the scope\r\n\r\n**Resource types** is pre-filled with the types in your scope that Azure Monitor documents as having platform logs or metrics. Those are the types where reading diagnostic settings is meaningful. Types with no documented platform logs or metrics are still listed, but left unselected: a read against one of those commonly fails, and **a single failed read fails the entire live grid**. That is usually what an `An unknown error has occurred` message means here.\r\n\r\n**Resources to check** starts empty on purpose, so nothing calls ARM until you choose. Pick `All` to check everything matching the filters, or pick individual resources. Each selection is one live ARM request on every run and refresh, so keep it to a few hundred at most.\r\n\r\nIf Step 1 shows a request error, deselect resource types (or individual resources) until it succeeds; the last thing you removed is the one that fails."
       },
       "name": "Introduction"
     },
@@ -63,50 +63,39 @@
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| summarize Count = count() by type\n| project value = tolower(type), label = strcat(type, '  (', Count, ')')\n| order by label asc\n| take 1000",
+            "query": "Resources\r\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\r\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\r\n| summarize Count = count() by TypeName = tolower(type)\r\n| extend Supported = TypeName in ('microsoft.aad/domainservices','microsoft.agfoodplatform/farmbeats','microsoft.analysisservices/servers','microsoft.apimanagement/gateways','microsoft.apimanagement/service','microsoft.apimanagement/service/workspaces','microsoft.app/containerapps','microsoft.app/jobs','microsoft.app/managedenvironments','microsoft.app/sandboxgroups','microsoft.app/sessionpools','microsoft.appconfiguration/configurationstores','microsoft.applink/applinks/applinkmembers','microsoft.appplatform/spring','microsoft.attestation/attestationproviders','microsoft.automation/automationaccounts','microsoft.autonomousdevelopmentplatform/accounts','microsoft.autonomousdevelopmentplatform/workspaces','microsoft.avs/privateclouds','microsoft.azuredatatransfer/connections/flows','microsoft.azureplaywrightservice/accounts','microsoft.azuresphere/catalogs','microsoft.azurestackhci/clusters','microsoft.azurestackhci/edgemachines','microsoft.batch/batchaccounts','microsoft.bing/accounts','microsoft.botservice/botservices','microsoft.botservice/botservices/channels','microsoft.botservice/botservices/connections','microsoft.botservice/checknameavailability','microsoft.botservice/hostsettings','microsoft.botservice/listauthserviceproviders','microsoft.botservice/listqnamakerendpointkeys','microsoft.cache/redis','microsoft.cache/redisenterprise','microsoft.cache/redisenterprise/databases','microsoft.cdn/cdnwebapplicationfirewallpolicies','microsoft.cdn/edgeactions','microsoft.cdn/profiles','microsoft.cdn/profiles/endpoints','microsoft.chaos/experiments','microsoft.cloudhealth/healthmodels','microsoft.clusterstor/nodes','microsoft.codesigning/codesigningaccounts','microsoft.cognitiveservices/accounts','microsoft.cognitiveservices/accounts/projects','microsoft.community/communitytrainings','microsoft.compute/cloudservices','microsoft.compute/cloudservices/roles','microsoft.compute/disks','microsoft.compute/virtualmachines','microsoft.compute/virtualmachinescalesets','microsoft.compute/virtualmachinescalesets/virtualmachines','microsoft.confidentialledger/ledgers','microsoft.confidentialledger/managedccf','microsoft.confidentialledger/managedccfs','microsoft.connectedcache/cachenodes','microsoft.connectedcache/enterprisemcccustomers','microsoft.connectedcache/ispcustomers','microsoft.connectedvehicle/platformaccounts','microsoft.containerinstance/containergroups','microsoft.containerinstance/containerscalesets','microsoft.containerregistry/registries','microsoft.containerservice/fleets','microsoft.containerservice/managedclusters','microsoft.customproviders/resourceproviders','microsoft.d365customerinsights/instances','microsoft.dashboard/dashboards','microsoft.dashboard/grafana','microsoft.databoxedge/databoxedgedevices','microsoft.databricks/workspaces','microsoft.datafactory/datafactories','microsoft.datafactory/factories','microsoft.datalakeanalytics/accounts','microsoft.datalakestore/accounts','microsoft.dataprotection/backupvaults','microsoft.datareplication/replicationvaults','microsoft.datashare/accounts','microsoft.dbformariadb/servers','microsoft.dbformysql/flexibleservers','microsoft.dbformysql/servers','microsoft.dbforpostgresql/flexibleservers','microsoft.dbforpostgresql/servergroupsv2','microsoft.desktopvirtualization/appattachpackages','microsoft.desktopvirtualization/applicationgroups','microsoft.desktopvirtualization/hostpools','microsoft.desktopvirtualization/repositoryfolders','microsoft.desktopvirtualization/scalingplans','microsoft.desktopvirtualization/workspaces','microsoft.devcenter/devcenters','microsoft.deviceregistry/namespaces','microsoft.devices/iothubs','microsoft.devices/provisioningservices','microsoft.devopsinfrastructure/pools','microsoft.digitaltwins/digitaltwinsinstances','microsoft.discovery/bookshelves','microsoft.discovery/supercomputers','microsoft.discovery/workspaces','microsoft.documentdb/cassandraclusters','microsoft.documentdb/databaseaccounts','microsoft.documentdb/fleets','microsoft.documentdb/garnetclusters','microsoft.documentdb/mongoclusters','microsoft.durabletask/schedulers','microsoft.edge/diagnostics','microsoft.edgezones/edgezones','microsoft.elasticsan/elasticsans','microsoft.eventgrid/domains','microsoft.eventgrid/eventsubscriptions','microsoft.eventgrid/extensiontopics','microsoft.eventgrid/namespaces','microsoft.eventgrid/partnernamespaces','microsoft.eventgrid/partnertopics','microsoft.eventgrid/systemtopics','microsoft.eventgrid/topics','microsoft.eventhub/clusters','microsoft.eventhub/namespaces','microsoft.fileshares/fileshares','microsoft.hardwaresecuritymodules/cloudhsmclusters','microsoft.hardwaresecuritymodules/paymenthsmclusters','microsoft.hdinsight/clusters','microsoft.healthcareapis/services','microsoft.healthcareapis/workspaces/dicomservices','microsoft.healthcareapis/workspaces/fhirservices','microsoft.healthcareapis/workspaces/iotconnectors','microsoft.healthcareinterop/fhirqueryeventbatchchannels','microsoft.healthcareinterop/fhirqueryflatfilebatchchannels','microsoft.healthdataaiservices/deidservices','microsoft.healthmodel/healthmodels','microsoft.horizondb/clusters','microsoft.hybridcontainerservice/provisionedclusters','microsoft.hybridnetwork/networkfunctions','microsoft.hybridnetwork/virtualnetworkfunctions','microsoft.insights/autoscalesettings','microsoft.insights/components','microsoft.insights/datacollectionrules','microsoft.iotcentral/iotapps','microsoft.iotfirmwaredefense/workspaces','microsoft.keyvault/managedhsms','microsoft.keyvault/vaults','microsoft.kubernetes/connectedclusters','microsoft.kubernetesconfiguration/extensions','microsoft.kusto/clusters','microsoft.loadtestservice/loadtests','microsoft.logic/automationprojects','microsoft.logic/automationprojects/applications','microsoft.logic/integrationaccounts','microsoft.logic/integrationserviceenvironments','microsoft.logic/workflows','microsoft.machinelearningservices/registries','microsoft.machinelearningservices/workspaces','microsoft.machinelearningservices/workspaces/onlineendpoints','microsoft.machinelearningservices/workspaces/onlineendpoints/deployments','microsoft.managednetworkfabric/internetgateways','microsoft.managednetworkfabric/l3isolationdomains','microsoft.managednetworkfabric/networkdevices','microsoft.managednetworkfabric/networkfabriccontrollers','microsoft.managednetworkfabric/networkfabrics','microsoft.maps/accounts','microsoft.messagingconnectors/connectors','microsoft.mobilenetwork/mobilenetworks/sites','microsoft.mobilenetwork/packetcorecontrolplanes','microsoft.mobilenetwork/packetcorecontrolplanes/packetcoredataplanes','microsoft.mobilenetwork/radioaccessnetworks','microsoft.monitor/accounts','microsoft.monitor/pipelinegroups','microsoft.netapp/elasticaccounts/elasticcapacitypools','microsoft.netapp/elasticaccounts/elasticcapacitypools/elasticvolumes','microsoft.netapp/netappaccounts','microsoft.netapp/netappaccounts/capacitypools','microsoft.netapp/netappaccounts/capacitypools/caches','microsoft.netapp/netappaccounts/capacitypools/volumes','microsoft.netapp/scaleaccounts/scalecapacitypools','microsoft.netapp/scaleaccounts/scalecapacitypools/scalevolumes','microsoft.network/applicationgateways','microsoft.network/azurefirewalls','microsoft.network/bastionhosts','microsoft.network/connections','microsoft.network/dnsforwardingrulesets','microsoft.network/dnsresolverdomainlists','microsoft.network/dnsresolverpolicies','microsoft.network/dnsresolvers','microsoft.network/dnszones','microsoft.network/expressroutecircuits','microsoft.network/expressroutecircuits/peerings','microsoft.network/expressroutegateways','microsoft.network/expressroutelags','microsoft.network/expressrouteports','microsoft.network/frontdoors','microsoft.network/loadbalancers','microsoft.network/natgateways','microsoft.network/networkinterfaces','microsoft.network/networkmanagers','microsoft.network/networkmanagers/ipampools','microsoft.network/networksecuritygroups','microsoft.network/networksecurityperimeters','microsoft.network/networksecurityperimeters/profiles','microsoft.network/networkvirtualappliances','microsoft.network/networkwatchers/connectionmonitors','microsoft.network/p2svpngateways','microsoft.network/privatednszones','microsoft.network/privateendpoints','microsoft.network/privatelinkservices','microsoft.network/publicipaddresses','microsoft.network/publicipprefixes','microsoft.network/trafficmanagerprofiles','microsoft.network/virtualhubs','microsoft.network/virtualnetworkappliances','microsoft.network/virtualnetworkgateways','microsoft.network/virtualnetworks','microsoft.network/virtualrouters','microsoft.network/vpngateways','microsoft.networkanalytics/dataproducts','microsoft.networkcloud/baremetalmachines','microsoft.networkcloud/clustermanagers','microsoft.networkcloud/clusters','microsoft.networkcloud/kubernetesclusters','microsoft.networkcloud/storageappliances','microsoft.networkfunction/azuretrafficcollectors','microsoft.notificationhubs/namespaces','microsoft.notificationhubs/namespaces/notificationhubs','microsoft.onlineexperimentation/workspaces','microsoft.openenergyplatform/energyservices','microsoft.openlogisticsplatform/workspaces','microsoft.operationalinsights/workspaces','microsoft.orbital/contactprofiles','microsoft.orbital/geocatalogs','microsoft.orbital/l2connections','microsoft.orbital/spacecrafts','microsoft.orbital/terminals','microsoft.oriondb/clusters','microsoft.peering/peeringservices','microsoft.playfab/titles','microsoft.powerbi/tenants','microsoft.powerbi/tenants/workspaces','microsoft.powerbidedicated/capacities','microsoft.powerplatformmonitoringhub/copilotstudio','microsoft.powerplatformmonitoringhub/microsoftapp','microsoft.powerplatformmonitoringhub/powerapps','microsoft.powerplatformmonitoringhub/powerautomate','microsoft.providerhub/providermonitorsettings','microsoft.providerhub/providerregistrations','microsoft.purview/accounts','microsoft.quantum/provideraccounts','microsoft.quantum/workspaces','microsoft.recoveryservices/vaults','microsoft.redhatopenshift/hcpopenshiftclusters','microsoft.relay/namespaces','microsoft.resourcebuilder/workspaces','microsoft.resourcebuilder/workspaces/pipelines/jobs','microsoft.resources/subscriptions','microsoft.search/searchservices','microsoft.security/antimalwaresettings','microsoft.security/defenderforstoragesettings','microsoft.securitydetonation/chambers','microsoft.securitydetonation/securitydetonationchambers','microsoft.securityinsights/settings','microsoft.servicebus/namespaces','microsoft.servicenetworking/trafficcontrollers','microsoft.signalrservice/signalr','microsoft.signalrservice/signalr/replicas','microsoft.signalrservice/webpubsub','microsoft.signalrservice/webpubsub/replicas','microsoft.singularity/accounts','microsoft.sql/managedinstances','microsoft.sql/managedinstances/databases','microsoft.sql/servers/databases','microsoft.sql/servers/elasticpools','microsoft.sql/servers/jobagents','microsoft.standbypool/standbycontainergrouppools','microsoft.standbypool/standbyvirtualmachinepools','microsoft.storage/contextcaches/contextcachecontainers','microsoft.storage/storageaccounts','microsoft.storage/storageaccounts/blobservices','microsoft.storage/storageaccounts/fileservices','microsoft.storage/storageaccounts/objectreplicationpolicies','microsoft.storage/storageaccounts/queueservices','microsoft.storage/storageaccounts/storagetasks','microsoft.storage/storageaccounts/tableservices','microsoft.storage/storagetasks','microsoft.storageactions/storagetasks','microsoft.storagecache/amlfilesystems','microsoft.storagecache/caches','microsoft.storagemover/storagemovers','microsoft.storagesync/storagesyncservices','microsoft.storagetasks/storagetasks','microsoft.streamanalytics/streamingjobs','microsoft.synapse/workspaces','microsoft.synapse/workspaces/bigdatapools','microsoft.synapse/workspaces/kustopools','microsoft.synapse/workspaces/scopepools','microsoft.synapse/workspaces/sqlpools','microsoft.toolchainorchestrator/diagnostics','microsoft.videoindexer/accounts','microsoft.voiceservices/communicationsgateways','microsoft.web/containerapps','microsoft.web/hostingenvironments','microsoft.web/hostingenvironments/multirolepools','microsoft.web/hostingenvironments/workerpools','microsoft.web/serverfarms','microsoft.web/sites','microsoft.web/sites/slots','microsoft.web/staticsites','microsoft.workloads/sapvirtualinstances','microsoft.zerotrustsegmentation/segmentationmanagers','nginx.nginxplus/nginx.nginxplus/nginxdeployments','oracle.database/oracle.database/autonomousdatabases','oracle.database/oracle.database/cloudexadatainfrastructures','oracle.database/oracle.database/cloudvmclusters','oracle.database/oracle.database/dbsystems','oracle.database/oracle.database/exadbvmclusters','oracle.database/oracle.database/exascaledbstoragevaults','oracle.database/oracle.database/goldengatedeployments','private.messagingconnectors/private.messagingconnectors/connectors','wandisco.fusion/wandisco.fusion/migrators','wandisco.fusion/wandisco.fusion/migrators/datatransferagents','wandisco.fusion/wandisco.fusion/migrators/livedatamigrations','wandisco.fusion/wandisco.fusion/migrators/metadatamigrations')\r\n| project value = TypeName, label = strcat(TypeName, '  (', Count, ')', iff(Supported, '', '  [not documented for platform logs or metrics]')), selected = Supported\r\n| order by label asc\r\n| take 1000",
             "crossComponentResources": [
               "{Subscriptions}"
             ],
-            "value": [
-              "value::all"
-            ],
             "typeSettings": {
-              "additionalResourceOptions": [
-                "value::all"
-              ],
-              "selectAllValue": "*"
+              "additionalResourceOptions": []
             },
             "queryType": 1,
             "resourceType": "microsoft.resourcegraph/resources",
-            "description": "Narrow to the types you care about. Many Azure resource types do not support diagnostic settings at all; reading those wastes requests and can surface errors."
+            "description": "Pre-selected for you: every type in scope that Azure Monitor documents as having platform logs or metrics. Types marked [not documented ...] are left unselected, because reading diagnostic settings on them commonly fails and one failing read makes the whole live query below fail. You can still select them, at that risk."
           },
           {
             "id": "81eb693f-651c-42e6-8e09-a23e0b311904",
             "version": "KqlParameterItem/1.0",
-            "name": "Resources",
-            "label": "Resources to check (one ARM read each)",
+            "name": "TargetResources",
+            "label": "Resources to check (one live ARM read each)",
             "type": 5,
             "isRequired": true,
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})\n| project value = id, label = strcat(name, '  |  ', type)\n| order by label asc\n| take 1000",
+            "query": "Resources\r\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\r\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\r\n| where tolower(type) in~ ({ResourceTypes})\r\n| project value = id, label = strcat(name, '  |  ', type)\r\n| order by label asc\r\n| take 1000",
             "crossComponentResources": [
               "{Subscriptions}"
-            ],
-            "defaultValue": "value::all",
-            "value": [
-              "value::all"
             ],
             "typeSettings": {
               "additionalResourceOptions": [
                 "value::all"
-              ],
-              "showDefault": false
+              ]
             },
             "queryType": 1,
             "resourceType": "microsoft.resourcegraph/resources",
-            "description": "Defaults to every resource matching the filters above. Deselect resources to reduce live ARM requests. The dropdown itself returns at most 1,000 items."
+            "description": "Nothing is selected by default, so no live ARM call runs until you choose. Pick All to check every resource matching the filters above, or pick individual resources. Keep this to a few hundred resources at most: each selection is one live ARM request, and if any single request fails the whole grid fails."
           }
         ],
         "style": "above",
@@ -118,10 +107,125 @@
     {
       "type": 1,
       "content": {
-        "json": "## Step 1 - coverage for the selected scope\n\nOne row per resource, plus one row per diagnostic setting found on it. Use the column filter on **Diagnostic settings** to split the list.\n\n`No setting returned` means this workbook received **no diagnostic setting rows** for that resource. That happens when the resource genuinely has none, **and also** when the read failed, was denied, was throttled, or the type does not support diagnostic settings. Check **Step 3** before treating a resource as unconfigured, and read the raw ARM panel in Step 2 for errors."
+        "json": "## Step 1 - the live sources\r\n\r\nThese are the raw reads that Step 2 combines. They stay visible on purpose: **this is where request errors appear**. If either panel shows an error, Step 2 is incomplete and must not be read as 'not configured'.\r\n\r\nThe last grid lists resources that are in your resource groups but were **not** checked, because their resource type is not selected. No conclusion is drawn about those resources."
       },
       "conditionalVisibility": {
-        "parameterName": "Resources",
+        "parameterName": "TargetResources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "SourcesIntro"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Resources\r\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\r\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\r\n| where tolower(type) in~ ({ResourceTypes})\r\n| where id in~ ({TargetResources})\r\n| project Name = name, Type = type, ResourceGroup = resourceGroup, SubscriptionId = subscriptionId, Location = location, ResourceId = id\r\n| order by Type asc, Name asc\r\n| take 1000",
+        "size": 0,
+        "title": "Source A - the resources you selected (Azure Resource Graph)",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscriptions}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 1000,
+          "filter": true
+        },
+        "noDataMessage": "No resources returned for the selected scope."
+      },
+      "conditionalVisibility": {
+        "parameterName": "TargetResources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "ScopeInventory"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Resources\r\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\r\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\r\n| where tolower(type) !in~ ({ResourceTypes})\r\n| project Name = name, Type = type, ResourceGroup = resourceGroup, ResourceId = id, Status = 'Not checked - this resource type is not selected in the Resource types filter'\r\n| order by Type asc, Name asc\r\n| take 1000",
+        "size": 0,
+        "title": "Resources in scope that were NOT checked (no conclusion is drawn about these)",
+        "noDataMessage": "Every resource in the selected resource groups belongs to a selected resource type.",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": "{Subscriptions}",
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 1000,
+          "filter": true,
+          "formatters": [
+            {
+              "columnMatch": "ResourceId",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "60ch"
+              }
+            }
+          ]
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "ResourceTypes",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "NotChecked"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GET\",\"path\":\"{TargetResources}/providers/Microsoft.Insights/diagnosticSettings\",\"urlParams\":[{\"key\":\"api-version\",\"value\":\"2021-05-01-preview\"}],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"$.value\",\"columns\":[{\"path\":\"id\",\"columnid\":\"ResourceId\",\"substringRegexMatch\":\"(\\\\/subscriptions.*)(\\\\/providers\\\\/[Mm]icrosoft\\\\.[Ii]nsights\\\\/[Dd]iagnostic[Ss]ettings.*)\",\"substringReplace\":\"$1\"},{\"path\":\"name\",\"columnid\":\"SettingName\"},{\"path\":\"properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"id\",\"columnid\":\"SettingId\"}]}}]}",
+        "size": 0,
+        "title": "Source B - live diagnostic settings from ARM (one read per selected resource)",
+        "queryType": 12,
+        "visualization": "table",
+        "gridSettings": {
+          "rowLimit": 10000,
+          "filter": true,
+          "formatters": [
+            {
+              "columnMatch": "LogEntries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            },
+            {
+              "columnMatch": "MetricEntries",
+              "formatter": 1,
+              "formatOptions": {
+                "linkTarget": "CellDetails",
+                "linkIsContextBlade": true,
+                "customColumnWidthSetting": "30ch"
+              }
+            }
+          ]
+        },
+        "noDataMessage": "No diagnostic settings returned for any selected resource."
+      },
+      "conditionalVisibility": {
+        "parameterName": "TargetResources",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      },
+      "name": "DiagnosticSettingsFanout"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Step 2 - coverage for the resources you selected\r\n\r\nSource A joined to Source B. One row per checked resource, plus one row per diagnostic setting found on it. Use the column filter on **Diagnostic settings** to split the list. Resources listed as not checked in Step 1 are not in this grid.\r\n\r\n`No setting returned` means this workbook received **no diagnostic setting rows** for that resource. That happens when the resource genuinely has none, **and also** when the read failed, was denied, or was throttled. Check Step 1 for errors and confirm in Step 3 before treating a resource as unconfigured."
+      },
+      "conditionalVisibility": {
+        "parameterName": "TargetResources",
         "comparison": "isNotEqualTo",
         "value": ""
       },
@@ -180,7 +284,7 @@
         "noDataMessage": "No resources returned for the selected scope."
       },
       "conditionalVisibility": {
-        "parameterName": "Resources",
+        "parameterName": "TargetResources",
         "comparison": "isNotEqualTo",
         "value": ""
       },
@@ -213,7 +317,7 @@
         "noDataMessage": "Every resource in scope returned at least one diagnostic setting."
       },
       "conditionalVisibility": {
-        "parameterName": "Resources",
+        "parameterName": "TargetResources",
         "comparison": "isNotEqualTo",
         "value": ""
       },
@@ -222,87 +326,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## Step 2 - raw source data\n\nThe two panels below are the inputs to Step 1. Keep them visible: **this is where request errors appear**. If the ARM panel shows an error, the coverage lists above are incomplete and must not be read as 'not configured'."
-      },
-      "conditionalVisibility": {
-        "parameterName": "Resources",
-        "comparison": "isNotEqualTo",
-        "value": ""
-      },
-      "name": "RawIntro"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "Resources\n| extend ResourceGroupId = tolower(strcat('/subscriptions/', subscriptionId, '/resourceGroups/', resourceGroup))\n| where '*' in ({ResourceGroups}) or ResourceGroupId in~ ({ResourceGroups})\n| where '*' in ({ResourceTypes}) or tolower(type) in~ ({ResourceTypes})\n| where id in~ ({Resources})\n| project Name = name, Type = type, ResourceGroup = resourceGroup, SubscriptionId = subscriptionId, Location = location, ResourceId = id\n| order by Type asc, Name asc\n| take 1000",
-        "size": 0,
-        "title": "Source A - resource inventory from Azure Resource Graph (up to 1,000 rows)",
-        "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
-        "crossComponentResources": [
-          "{Subscriptions}"
-        ],
-        "visualization": "table",
-        "gridSettings": {
-          "rowLimit": 1000,
-          "filter": true
-        },
-        "noDataMessage": "No resources returned for the selected scope."
-      },
-      "conditionalVisibility": {
-        "parameterName": "Resources",
-        "comparison": "isNotEqualTo",
-        "value": ""
-      },
-      "name": "ScopeInventory"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"GET\",\"path\":\"{Resources}/providers/Microsoft.Insights/diagnosticSettings\",\"urlParams\":[{\"key\":\"api-version\",\"value\":\"2021-05-01-preview\"}],\"batchDisabled\":false,\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"$.value\",\"columns\":[{\"path\":\"id\",\"columnid\":\"ResourceId\",\"substringRegexMatch\":\"(\\\\/subscriptions.*)(\\\\/providers\\\\/[Mm]icrosoft\\\\.[Ii]nsights\\\\/[Dd]iagnostic[Ss]ettings.*)\",\"substringReplace\":\"$1\"},{\"path\":\"name\",\"columnid\":\"SettingName\"},{\"path\":\"properties.logs\",\"columnid\":\"LogEntries\"},{\"path\":\"properties.metrics\",\"columnid\":\"MetricEntries\"},{\"path\":\"properties.workspaceId\",\"columnid\":\"WorkspaceId\"},{\"path\":\"properties.storageAccountId\",\"columnid\":\"StorageAccountId\"},{\"path\":\"properties.eventHubAuthorizationRuleId\",\"columnid\":\"EventHubAuthorizationRuleId\"},{\"path\":\"properties.eventHubName\",\"columnid\":\"EventHubName\"},{\"path\":\"properties.marketplacePartnerId\",\"columnid\":\"MarketplacePartnerId\"},{\"path\":\"properties.logAnalyticsDestinationType\",\"columnid\":\"LogAnalyticsDestinationType\"},{\"path\":\"id\",\"columnid\":\"SettingId\"}]}}]}",
-        "size": 0,
-        "title": "Source B - live diagnostic settings from ARM (one read per selected resource)",
-        "queryType": 12,
-        "visualization": "table",
-        "gridSettings": {
-          "rowLimit": 10000,
-          "filter": true,
-          "formatters": [
-            {
-              "columnMatch": "LogEntries",
-              "formatter": 1,
-              "formatOptions": {
-                "linkTarget": "CellDetails",
-                "linkIsContextBlade": true,
-                "customColumnWidthSetting": "30ch"
-              }
-            },
-            {
-              "columnMatch": "MetricEntries",
-              "formatter": 1,
-              "formatOptions": {
-                "linkTarget": "CellDetails",
-                "linkIsContextBlade": true,
-                "customColumnWidthSetting": "30ch"
-              }
-            }
-          ]
-        },
-        "noDataMessage": "No diagnostic settings returned for any selected resource."
-      },
-      "conditionalVisibility": {
-        "parameterName": "Resources",
-        "comparison": "isNotEqualTo",
-        "value": ""
-      },
-      "name": "DiagnosticSettingsFanout"
-    },
-    {
-      "type": 1,
-      "content": {
-        "json": "## Step 3 - authoritative detail for one resource\n\nSelect a row in the Step 1 grid. Only this section performs a dedicated, paged read for a single target, so **use it to confirm anything the bulk lists suggest**.\n\nTo inspect a service child that Azure Resource Graph does not list as its own resource, add its suffix below. Example: for a storage account's Blob service, enter `/blobServices/default`. A parent storage account and its Blob service are different targets with different settings."
+        "json": "## Step 3 - authoritative detail for one resource\n\nSelect a row in the Step 2 grid. Only this section performs a dedicated, paged read for a single target, so **use it to confirm anything the bulk lists suggest**.\n\nTo inspect a service child that Azure Resource Graph does not list as its own resource, add its suffix below. Example: for a storage account's Blob service, enter `/blobServices/default`. A parent storage account and its Blob service are different targets with different settings."
       },
       "conditionalVisibility": {
         "parameterName": "SelectedResource",
@@ -454,7 +478,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## What this workbook cannot tell you\n\n**`No setting returned` is not a compliance verdict.** A resource appears there when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. The bulk read makes one ARM request per resource, and a resource whose request fails contributes no rows, exactly like a resource with no settings. Confirm individual resources in Step 3, and watch the Step 2 ARM panel for errors.\n\n**Matching is by resource ID string.** Bulk rows are attributed to a resource by stripping the `/providers/microsoft.insights/diagnosticSettings/...` suffix from each setting ID. If ARM returns the resource ID with different casing than Azure Resource Graph stored it, that resource can show as `No setting returned` even though Step 3 shows settings. Step 3 is authoritative.\n\n**Request volume.** Every selected resource costs one ARM request on every run and refresh. Narrow by resource type and deselect resources you do not need. Many resource types do not support diagnostic settings at all.\n\n**Coverage, not correctness.** Compare each setting's log `category` with the live **Category** names in Step 3, and check `categoryGroup` entries against **CategoryGroups**. Compare metric entries only with **Metrics** categories. **Available does not mean recommended**; this workbook does not recommend `allLogs` and does not evaluate a baseline. Metric export through diagnostic settings is different from resource logs and from metrics in Metrics Explorer; not every metric or dimension is exportable. Configuration metadata does not prove data is arriving at a destination. Log contents, destination contents, and keys are never read.\n\n**Scope limits.** Azure Resource Graph is RBAC-filtered and eventually consistent, returns at most 1,000 rows here, and dropdowns hold at most 1,000 items; a row limit is not a completeness guarantee. Service children such as `blobServices/default` are not listed by Azure Resource Graph, so they never appear in the bulk lists - use the child suffix in Step 3. There is no estate-wide total, production classification, compliance score, recommendation, history, or remediation, and no Azure Resource Graph table of diagnostic settings exists to build one from.\n\n**Access.** Viewers need read access to the underlying resources as well as to the workbook; sharing a workbook grants neither. Saving the workbook is your own separate Azure action and needs workbook write permission in a resource group you are allowed to use. No Azure tenant was accessed while building this workbook; local checks are not a substitute for trying it in the portal.\n\n[README, import steps, permissions and limitations](https://github.com/ppmiralles0110/DiagnosticSettingsMonWS/blob/main/README.md) | [Diagnostic settings documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings)"
+        "json": "## What this workbook cannot tell you\n\n**`No setting returned` is not a compliance verdict.** A resource appears there when the ARM read returned an empty collection **or** when that read failed, was denied by RBAC, was throttled, or the resource type does not support diagnostic settings. The bulk read makes one ARM request per resource, and a resource whose request fails contributes no rows, exactly like a resource with no settings. Confirm individual resources in Step 3, and watch the Step 1 ARM panel for errors.\n\n**Matching is by resource ID string.** Bulk rows are attributed to a resource by stripping the `/providers/microsoft.insights/diagnosticSettings/...` suffix from each setting ID. If ARM returns the resource ID with different casing than Azure Resource Graph stored it, that resource can show as `No setting returned` even though Step 3 shows settings. Step 3 is authoritative.\n\n**Request volume.** Every selected resource costs one ARM request on every run and refresh. Narrow by resource type and deselect resources you do not need. Many resource types do not support diagnostic settings at all, and one failing read can fail the whole batch panel.\n\n**The pre-selected type list is documentation-derived.** The resource types selected for you come from Azure Monitor's generated reference of resource types that have platform logs or metrics. It is a snapshot taken when this workbook was built, not a live capability probe: a newly supported type can be missing from it, and a listed type can still fail for a particular resource. It only decides what is pre-selected - you can select or deselect anything.\r\n**Coverage, not correctness.** Compare each setting's log `category` with the live **Category** names in Step 3, and check `categoryGroup` entries against **CategoryGroups**. Compare metric entries only with **Metrics** categories. **Available does not mean recommended**; this workbook does not recommend `allLogs` and does not evaluate a baseline. Metric export through diagnostic settings is different from resource logs and from metrics in Metrics Explorer; not every metric or dimension is exportable. Configuration metadata does not prove data is arriving at a destination. Log contents, destination contents, and keys are never read.\n\n**Scope limits.** Azure Resource Graph is RBAC-filtered and eventually consistent, returns at most 1,000 rows here, and dropdowns hold at most 1,000 items; a row limit is not a completeness guarantee. Service children such as `blobServices/default` are not listed by Azure Resource Graph, so they never appear in the bulk lists - use the child suffix in Step 3. There is no estate-wide total, production classification, compliance score, recommendation, history, or remediation, and no Azure Resource Graph table of diagnostic settings exists to build one from.\n\n**Access.** Viewers need read access to the underlying resources as well as to the workbook; sharing a workbook grants neither. Saving the workbook is your own separate Azure action and needs workbook write permission in a resource group you are allowed to use. No Azure tenant was accessed while building this workbook; local checks are not a substitute for trying it in the portal.\n\n[README, import steps, permissions and limitations](https://github.com/ppmiralles0110/DiagnosticSettingsMonWS/blob/main/README.md) | [Diagnostic settings documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/diagnostic-settings)"
       },
       "name": "GuidanceAndLimits"
     }
